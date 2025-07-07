@@ -69,6 +69,8 @@ type addHostMetadata struct {
 	metrics metrics
 }
 
+var instanceCount int
+
 // New constructs a new add_host_metadata processor.
 func New(cfg *config.C, log *logp.Logger) (beat.Processor, error) {
 	c := defaultConfig()
@@ -117,6 +119,9 @@ func New(cfg *config.C, log *logp.Logger) (beat.Processor, error) {
 			processorName, err,
 		)
 	}
+
+	instanceCount++
+	log.Infof("add_host_metadata: processor created, instance count: %d", instanceCount)
 
 	return p, nil
 }

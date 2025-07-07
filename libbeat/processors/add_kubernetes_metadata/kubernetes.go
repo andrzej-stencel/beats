@@ -104,7 +104,7 @@ func kubernetesMetadataExist(event *beat.Event) bool {
 	return true
 }
 
-var instanceCount int32 = 0
+var instanceCount int
 
 // New constructs a new add_kubernetes_metadata processor.
 func New(cfg *config.C, log *logp.Logger) (beat.Processor, error) {

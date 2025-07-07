@@ -57,6 +57,8 @@ type initData struct {
 	overwrite bool
 }
 
+var instanceCount int
+
 // New constructs a new add_cloud_metadata processor.
 func New(c *cfg.C, log *logp.Logger) (beat.Processor, error) {
 	config := defaultConfig()
@@ -85,6 +87,8 @@ func New(c *cfg.C, log *logp.Logger) (beat.Processor, error) {
 	}
 
 	go p.init()
+	instanceCount++
+	log.Infof("add_kubernetes_metadata processor created, instance count: %d", instanceCount)
 	return p, nil
 }
 
