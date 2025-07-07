@@ -104,6 +104,8 @@ func kubernetesMetadataExist(event *beat.Event) bool {
 	return true
 }
 
+var instanceCount int32 = 0
+
 // New constructs a new add_kubernetes_metadata processor.
 func New(cfg *config.C, log *logp.Logger) (beat.Processor, error) {
 	config, err := newProcessorConfig(cfg, Indexing)
@@ -122,6 +124,8 @@ func New(cfg *config.C, log *logp.Logger) (beat.Processor, error) {
 	// the k8s node is not yet ready.
 	go processor.init(config, cfg)
 
+	instanceCount++
+	log.Infof("add_kubernetes_metadata processor created, instance count: %d", instanceCount)
 	return processor, nil
 }
 
@@ -325,6 +329,7 @@ func (k *kubernetesAnnotator) init(config kubeAnnotatorConfig, cfg *config.C) {
 			k.log.Debugf("add_kubernetes_metadata", "Couldn't start pod watcher: %v", err)
 			return
 		}
+		k.log.Info("add_kubernetes_metadata processor initiatied successfully")
 	})
 }
 
