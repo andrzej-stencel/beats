@@ -88,7 +88,7 @@ func New(c *cfg.C, log *logp.Logger) (beat.Processor, error) {
 
 	go p.init()
 	instanceCount++
-	log.Infof("add_kubernetes_metadata processor created, instance count: %d", instanceCount)
+	log.Infof("add_cloud_metadata: processor created, instance count: %d", instanceCount)
 	return p, nil
 }
 

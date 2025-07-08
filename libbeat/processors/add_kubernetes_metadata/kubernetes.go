@@ -125,7 +125,7 @@ func New(cfg *config.C, log *logp.Logger) (beat.Processor, error) {
 	go processor.init(config, cfg)
 
 	instanceCount++
-	log.Infof("add_kubernetes_metadata processor created, instance count: %d", instanceCount)
+	log.Infof("add_kubernetes_metadata: processor created, instance count: %d", instanceCount)
 	return processor, nil
 }
 
@@ -329,7 +329,7 @@ func (k *kubernetesAnnotator) init(config kubeAnnotatorConfig, cfg *config.C) {
 			k.log.Debugf("add_kubernetes_metadata", "Couldn't start pod watcher: %v", err)
 			return
 		}
-		k.log.Info("add_kubernetes_metadata processor initiatied successfully")
+		k.log.Info("add_kubernetes_metadata: processor initiatied successfully")
 	})
 }
 
