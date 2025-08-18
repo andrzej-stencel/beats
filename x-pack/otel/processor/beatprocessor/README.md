@@ -7,9 +7,9 @@
 [development]: https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/component-stability.md#development
 
 > [!NOTE]
-> This component is currently in development and no functionality is implemented.
-> Including it in a pipeline is a no-op.
-> The documentation describes the intended state after the functionality is implemented.
+> This component is currently in development and functionality is limited.
+> It is currently not configurable, meaning that any configuration is ignored.
+> The configuration documentation below describes the intended state after configuration is implemented.
 
 The Beat processor (`beat`) is an OpenTelemetry Collector processor that wraps the [Beat processors].
 This allows you to use Beat processorss like e.g. [add_host_metadata] anywhere in the OpenTelemetry Collector's pipeline, independently of Beat receivers.
@@ -18,6 +18,9 @@ This allows you to use Beat processorss like e.g. [add_host_metadata] anywhere i
 > This component is only expected to work correctly with data from the Beat receivers: [Filebeat receiver], [Metricbeat receiver].
 > This is because it relies on the specific structure of telemetry emitted by those components.
 > Using it with data coming from other components is not recommended and may result in unexpected behavior.
+
+The processor enriches the telemetry with host metadata by using the [add_host_metadata] processor under the hood.
+Note that configuration is ignored at this stage. Host metadata is added unconditionally and cannot be configured or disabled.
 
 ## Example
 
