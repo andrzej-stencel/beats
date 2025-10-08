@@ -10,12 +10,13 @@ import (
 	"fmt"
 
 	"github.com/elastic/beats/v7/libbeat/beat"
+	"github.com/elastic/beats/v7/libbeat/otelbeat/otelmap"
 	"github.com/elastic/beats/v7/libbeat/processors/add_host_metadata"
+	"github.com/elastic/beats/v7/libbeat/processors/add_kubernetes_metadata"
 	"github.com/elastic/elastic-agent-libs/config"
 	"github.com/elastic/elastic-agent-libs/logp"
 	"github.com/elastic/elastic-agent-libs/mapstr"
 
-	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/processor"
 	"go.uber.org/zap"
@@ -39,12 +40,17 @@ func newBeatProcessor(set processor.Settings, cfg *Config) (*beatProcessor, erro
 		}
 		if processor != nil {
 			bp.processors = append(bp.processors, processor)
+			bp.logger.Info("Configured Beat processor", zap.String("name", processor.String()))
 		}
 	}
 
 	return bp, nil
 }
 
+// createProcessor creates a Beat processor using the provided configuration.
+// The configuration is expected to be a map with a single key containing the processor name
+// and the processor's configuration as the value for that key.
+// For example: {"add_host_metadata":{"netinfo":{"enabled":false}}}
 func createProcessor(cfg map[string]any) (beat.Processor, error) {
 	if len(cfg) == 0 {
 		return nil, nil
@@ -59,10 +65,13 @@ func createProcessor(cfg map[string]any) (beat.Processor, error) {
 		}
 		return nil, fmt.Errorf("expected single processor name but got %v", len(cfg))
 	}
+
 	for processorName, processorConfig := range cfg {
 		switch processorName {
 		case "add_host_metadata":
 			return createAddHostMetadataProcessor(processorConfig)
+		case "add_kubernetes_metadata":
+			return createAddKubernetesMetadataProcessor(processorConfig)
 		default:
 			return nil, fmt.Errorf("invalid processor name '%s'", processorName)
 		}
@@ -82,35 +91,44 @@ func createAddHostMetadataProcessor(cfg any) (beat.Processor, error) {
 	return addHostMetadataProcessor, nil
 }
 
+func createAddKubernetesMetadataProcessor(cfg any) (beat.Processor, error) {
+	addKubernetesMetadataConfig, err := config.NewConfigFrom(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create add_kubernetes_metadata processor config: %w", err)
+	}
+	addKubernetesMetadataProcessor, err := add_kubernetes_metadata.New(addKubernetesMetadataConfig, logp.NewLogger("beatprocessor"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create add_kubernetes_metadata processor: %w", err)
+	}
+	return addKubernetesMetadataProcessor, nil
+}
+
 func (p *beatProcessor) ConsumeLogs(_ context.Context, logs plog.Logs) (plog.Logs, error) {
 	if len(p.processors) == 0 {
 		return logs, nil
 	}
 
-	for _, hostProcessor := range p.processors {
-		dummyEvent := &beat.Event{}
-		dummyEvent.Fields = mapstr.M{}
-		dummyEvent.Meta = mapstr.M{}
-		dummyEventWithHostMetadata, err := hostProcessor.Run(dummyEvent)
-		if err != nil {
-			p.logger.Error("error processing host metadata", zap.Error(err))
-			continue
-		}
-		hostMap, ok := dummyEventWithHostMetadata.Fields["host"].(mapstr.M)
-		if !ok {
-			p.logger.Error("error casting host metadata to mapstr.M", zap.Error(err))
-			continue
-		}
-		otelMap, err := toOtelMap(&hostMap)
-		if err != nil {
-			p.logger.Error("error converting host metadata", zap.Error(err))
-			continue
-		}
-		for _, resourceLogs := range logs.ResourceLogs().All() {
-			for _, scopeLogs := range resourceLogs.ScopeLogs().All() {
-				for _, logRecord := range scopeLogs.LogRecords().All() {
-					bodyMap := logRecord.Body().Map().PutEmptyMap("host")
-					otelMap.CopyTo(bodyMap)
+	for _, resourceLogs := range logs.ResourceLogs().All() {
+		for _, scopeLogs := range resourceLogs.ScopeLogs().All() {
+			for _, logRecord := range scopeLogs.LogRecords().All() {
+				beatEvent, err := upackBeatEventFromOTelLogRecord(logRecord)
+				if err != nil {
+					p.logger.Error("error converting OTel log to Beat event", zap.Error(err))
+					continue
+				}
+
+				for _, processor := range p.processors {
+					processedEvent, err := processor.Run(beatEvent)
+					if err != nil {
+						p.logger.Error("error processing Beat event", zap.Error(err))
+						continue
+					}
+					beatEvent = processedEvent
+				}
+
+				packingError := packBeatEventIntoOTelLogRecord(beatEvent, logRecord)
+				if packingError != nil {
+					p.logger.Error("error converting processed Beat event to OTel log record", zap.Error(packingError))
 				}
 			}
 		}
@@ -119,29 +137,21 @@ func (p *beatProcessor) ConsumeLogs(_ context.Context, logs plog.Logs) (plog.Log
 	return logs, nil
 }
 
-func toOtelMap(m *mapstr.M) (pcommon.Map, error) {
-	otelMap := pcommon.NewMap()
-	for key, value := range *m {
-		switch typedValue := value.(type) {
-		case mapstr.M:
-			subMap, err := toOtelMap(&typedValue)
-			if err != nil {
-				return pcommon.Map{}, fmt.Errorf("failed to convert map for key '%s': %w", key, err)
-			}
-			otelSubMap := otelMap.PutEmptyMap(key)
-			subMap.MoveTo(otelSubMap)
-		case []string:
-			otelValue := otelMap.PutEmptySlice(key)
-			for _, item := range typedValue {
-				otelValue.AppendEmpty().SetStr(item)
-			}
-		default:
-			otelValue := otelMap.PutEmpty(key)
-			err := otelValue.FromRaw(typedValue)
-			if err != nil {
-				return pcommon.Map{}, fmt.Errorf("failed to convert value for key '%s': %w", key, err)
-			}
-		}
-	}
-	return otelMap, nil
+func upackBeatEventFromOTelLogRecord(logRecord plog.LogRecord) (*beat.Event, error) {
+	beatEvent := &beat.Event{}
+	beatEvent.Timestamp = logRecord.Timestamp().AsTime()
+
+	beatEvent.Meta = mapstr.M{}
+
+	beatEvent.Fields = logRecord.Body().Map().AsRaw()
+	// beatEvent.Fields = maps.Clone(logRecord.Body().Map().AsRaw())
+
+	return beatEvent, nil
+}
+
+func packBeatEventIntoOTelLogRecord(beatEvent *beat.Event, logRecord plog.LogRecord) error {
+	beatEvent.Fields = beatEvent.Fields.Clone()
+	otelmap.ConvertNonPrimitive((map[string]any)(beatEvent.Fields))
+	err := logRecord.Body().Map().FromRaw(beatEvent.Fields)
+	return err
 }

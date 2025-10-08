@@ -6,9 +6,6 @@
 
 [development]: https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/component-stability.md#development
 
-> [!NOTE]
-> This component is currently in development and functionality is limited.
-
 The Beat processor (`beat`) is an OpenTelemetry Collector processor that wraps the [Beat processors].
 This allows you to use Beat processors like e.g. [add_host_metadata] anywhere in the OpenTelemetry Collector's pipeline, independently of Beat receivers.
 
@@ -16,6 +13,11 @@ This allows you to use Beat processors like e.g. [add_host_metadata] anywhere in
 > This component is only expected to work correctly with data from the Beat receivers: [Filebeat receiver], [Metricbeat receiver].
 > This is because it relies on the specific structure of telemetry emitted by those components.
 > Using it with data coming from other components is not recommended and may result in unexpected behavior.
+
+Here are the currently supported processors:
+
+- [add_host_metadata]
+- [add_kubernetes_metadata]
 
 The processor enriches the telemetry with host metadata by using the [add_host_metadata] processor under the hood.
 Note that configuration is limited at this stage.
@@ -65,11 +67,17 @@ receivers:
 The above Filebeat receiver configuration specifies an empty list of processors.
 In this case, none of the default processors are ran as part of the Filebeat receiver.
 
-## Example
+## Examples
 
-The following [Filebeat receiver] configuration
+The following OpenTelemetry Collector configuration using only the [Filebeat receiver]:
 
 ```yaml
+service:
+  pipelines:
+    logs:
+      receivers: [filebeatreceiver]
+      exporters: [debug]
+
 receivers:
   filebeatreceiver:
     filebeat:
@@ -84,11 +92,21 @@ receivers:
             enabled: false
     output:
       otelconsumer:
+
+exporters:
+  debug:
 ```
 
 is functionally equivalent to this one, using the Beat processor:
 
 ```yaml
+service:
+  pipelines:
+    logs:
+      receivers: [filebeatreceiver]
+      processors: [beat]
+      exporters: [debug]
+
 receivers:
   filebeatreceiver:
     filebeat:
@@ -107,6 +125,31 @@ processors:
       - add_host_metadata:
           netinfo:
             enabled: false
+
+exporters:
+  debug:
+```
+
+## Using the `add_host_metadata` processor
+
+To use the [add_host_metadata] processor, configure the processor as follows:
+
+```yaml
+processors:
+  beat:
+    processors:
+      - add_host_metadata:
+```
+
+## Using the `add_kubernetes_metadata` processor
+
+To use the [add_kubernetes_metadata] processor, configure the processor as follows:
+
+```yaml
+processors:
+  beat:
+    processors:
+      - add_kubernetes_metadata:
 ```
 
 [Beat processors]: https://www.elastic.co/docs/reference/beats/filebeat/filtering-enhancing-data#using-processors
